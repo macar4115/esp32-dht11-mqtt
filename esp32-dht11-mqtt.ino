@@ -20,17 +20,17 @@
 #define DHTTYPE DHT11  // DHT sensor type
 
 // WiFi credentials
-#define WIFI_SSID "TTNET_ZyXEL_YV37"
-#define WIFI_PASS "c42416eF4AdEb"
+#define WIFI_SSID "your_wifi_ssid"
+#define WIFI_PASS "your_wifi_password"
 
 // MQTT Broker configuration
-#define MQTT_SERVER "mqtt3.thingspeak.com"
+#define MQTT_SERVER "your_mqtt_server"
 #define MQTT_PORT 1883
-#define MQTT_CLIENT_ID "AQUxLCcFDzsHIQkKESwlPR4"
-#define MQTT_USER "AQUxLCcFDzsHIQkKESwlPR4"
-#define MQTT_PASS "rW4XzewfWqCu3QOm64Wspo5N"
-#define PUBLISH_TOPIC "channels/2835504/publish"
-#define SUBSCRIBE_TOPIC "channels/2835504/subscribe/fields/field1"
+#define MQTT_CLIENT_ID "your_mqtt_client_id"
+#define MQTT_USER "your_mqtt_username"
+#define MQTT_PASS "your_mqtt_password"
+#define PUBLISH_TOPIC "your_publish_topic"
+#define SUBSCRIBE_TOPIC "your_subscribe_topic"
 
 // NTP Time configuration
 #define NTP_SERVER "pool.ntp.org"
