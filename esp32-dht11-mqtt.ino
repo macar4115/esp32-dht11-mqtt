@@ -253,31 +253,31 @@ void displayTask(void *pvParameters) {
   char formattedDate[20];
   char formattedTime[10];
   while (true) {
-    display.clearDisplay();
+    // Instead of clearing the entire display, clear only the updated regions.
+    // Clear top region (date/time)
+    display.fillRect(0, 0, 84, 16, WHITE);
     display.setCursor(0, 0);
     display.setTextSize(1);
     display.setTextColor(BLACK);
 
-    // Update time every second after WiFi is connected
+    // Update time (date and time)
     if (timeInitialized) {
-      // Format and display date and time
       snprintf(formattedDate, sizeof(formattedDate), "%02d-%02d-%04d", rtc.getDay(), rtc.getMonth() + 1, rtc.getYear());
       snprintf(formattedTime, sizeof(formattedTime), "%02d:%02d:%02d", rtc.getHour(true), rtc.getMinute(), rtc.getSecond());
-
-      // Display updated date and time
       Serial.println(formattedDate);
       Serial.println(formattedTime);
       display.println(formattedDate);
       display.println(formattedTime);
     }
 
-    // Display WiFi and MQTT connection status
+    // Clear sensor info region (assuming bottom portion, starting at y=16)
+    display.fillRect(0, 16, 84, 32, WHITE);
+    display.setCursor(0, 16);
     display.print("WiFi:" + String(WiFi.status() == WL_CONNECTED ? "OK" : "NO"));
     display.println(" MQT:" + String(client.connected() ? "OK" : "NO"));
 
-    // Display sensor data if available
     if (xQueueReceive(displayQueue, &sensorData, pdMS_TO_TICKS(200))) {
-      Serial.println("Displaying data: Hum=" + String(sensorData.humidity) + ", Temp=" + String(sensorData.temperature) + ", HeatIndex=" + String(sensorData.heatIndex));
+      Serial.println("Displaying data: Hum=" + String(sensorData.humidity) + ", Temp=" + String(sensorData.temperature) + ", HeatIdx=" + String(sensorData.heatIndex));
     }
     display.println("Hum:" + String(sensorData.humidity) + "%");
     display.println("Temp:" + String(sensorData.temperature) + "C");
@@ -286,6 +286,19 @@ void displayTask(void *pvParameters) {
 
     vTaskDelay(pdMS_TO_TICKS(2000));  // Update display every 2 seconds
   }
+}
+
+// Function to display the opening screen
+void showOpeningScreen() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(BLACK);
+  display.setCursor(0, 0);
+  display.println("Welcome to");
+  display.println("DHT Sensor App");
+  display.println("Initializing...");
+  display.display();
+  delay(3000);  // Show opening screen for 3 seconds
 }
 
 // ---------------------- Setup ----------------------
@@ -308,6 +321,8 @@ void setup() {
   delay(1);
   display.clearDisplay();
   display.display();
+
+  showOpeningScreen();  // New opening screen
 
   // Create queues for sensor data and display updates
   sensorQueue = xQueueCreate(5, sizeof(SensorData));

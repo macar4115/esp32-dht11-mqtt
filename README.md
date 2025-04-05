@@ -7,9 +7,10 @@ This project implements a DHT11 sensor (for temperature and humidity), an MQTT c
 - **WiFi Connectivity**: Connects to a WiFi network and initializes an NTP time server.
 - **MQTT Communication**: Publishes sensor data to ThingSpeak via MQTT and subscribes to control messages for the onboard LED.
 - **DHT11 Sensor**: Reads temperature and humidity, calculates heat index, and publishes the data.
-- **PCD8544 LCD Display**: Displays time, temperature, humidity, and connection statuses (WiFi and MQTT).
+- **PCD8544 LCD Display**: Displays real-time data including sensor readings and connection status.
 - **FreeRTOS Tasks**: Utilizes FreeRTOS for handling multiple tasks (WiFi connection, MQTT, sensor reading, data publishing, and display updates).
 - **RTC (Real-Time Clock)**: Synchronizes time using NTP and displays the current date and time.
+- **Opening Screen**: Displays a welcome message on startup.
 
 ## Hardware
 
@@ -95,6 +96,7 @@ Configure the NTP server and time zone settings for accurate time synchronizatio
 
 - Replace the WiFi credentials and MQTT broker details in the provided code.
 - Ensure the correct pin assignments for your hardware.
+- The code now includes an opening screen that will display a welcome message during startup.
 
 ### Step 3: Upload Code to Microcontroller
 
