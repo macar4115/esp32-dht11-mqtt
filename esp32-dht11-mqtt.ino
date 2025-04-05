@@ -119,22 +119,13 @@ struct SensorData {  // Structure to hold sensor readings
 
 // ---------------------- Helper Functions ----------------------
 
-/**
- * @brief Prints the current WiFi connection status to Serial.
- *
- * Logs "WiFi connected!" if connected, otherwise logs "WiFi not connected!".
- */
+// Optimized helper functions using F() macro
 void printWiFiStatus() {
-  Serial.println(WiFi.status() == WL_CONNECTED ? "WiFi connected!" : "WiFi not connected!");
+  Serial.println(WiFi.status() == WL_CONNECTED ? F("WiFi connected!") : F("WiFi not connected!"));
 }
 
-/**
- * @brief Prints the current MQTT connection status to Serial.
- *
- * Logs "MQTT connected!" if connected, otherwise logs "MQTT not connected!".
- */
 void printMQTTStatus() {
-  Serial.println(client.connected() ? "MQTT connected!" : "MQTT not connected!");
+  Serial.println(client.connected() ? F("MQTT connected!") : F("MQTT not connected!"));
 }
 
 /**
@@ -149,9 +140,9 @@ void initializeNTP() {
     if (getLocalTime(&timeinfo)) {
       rtc.setTimeStruct(timeinfo);  // Update local RTC
       timeInitialized = true;
-      Serial.println("NTP time initialized.");
+      Serial.println(F("NTP time initialized."));
     } else {
-      Serial.println("Failed to initialize NTP time.");
+      Serial.println(F("Failed to initialize NTP time."));
     }
   }
 }
@@ -162,20 +153,24 @@ void initializeNTP() {
  * Attempts connection with predefined credentials and initializes NTP on success.
  */
 void connectToWiFi() {
-  Serial.print("Connecting to WiFi: " + String(WIFI_SSID) + " with password: " + String(WIFI_PASS));
+  Serial.print(F("Connecting to WiFi: "));
+  Serial.print(WIFI_SSID);
+  Serial.print(F(" with password: "));
+  Serial.println(WIFI_PASS);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   for (int retryCount = 0; retryCount < 30; retryCount++) {
     if (WiFi.status() == WL_CONNECTED)
       break;
-    Serial.print(".");
+    Serial.print(F("."));
     vTaskDelay(pdMS_TO_TICKS(300));  // Wait for 300 ms before retrying
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\nWiFi connected! IP: " + WiFi.localIP().toString());
+    Serial.print(F("\nWiFi connected! IP: "));
+    Serial.println(WiFi.localIP().toString());
     initializeNTP();  // Initialize NTP after WiFi connection
   } else {
-    Serial.println("\nWiFi connection failed, retrying...");
+    Serial.println(F("\nWiFi connection failed, retrying..."));
   }
 }
 
@@ -194,27 +189,16 @@ void connectToMQTT() {
   }
 }
 
-/**
- * @brief Callback function to handle incoming MQTT messages.
- *
- * Constructs the message from payload and toggles the onboard LED based on the received value.
- *
- * @param topic Pointer to the MQTT topic.
- * @param payload Array containing the message payload.
- * @param length Length of the payload.
- */
+// Optimized MQTT callback using String(payload, length)
 void mqttCallback(char *topic, byte *payload, unsigned int length) {
-  String message;
-  message.reserve(length + 1);
-
-  for (unsigned int i = 0; i < length; i++) {
-    message += (char)payload[i];
-  }
-
-  Serial.println("Message received [" + String(topic) + "]: " + message);
+  String message(payload, length);
+  Serial.print(F("Message received ["));
+  Serial.print(topic);
+  Serial.print(F("]: "));
+  Serial.println(message);
 
   if (String(topic) == SUBSCRIBE_TOPIC) {
-    digitalWrite(LED_BUILTIN, message.equals("1") ? LOW : HIGH);  // Toggle LED based on the message
+    digitalWrite(LED_BUILTIN, message.equals(F("1")) ? LOW : HIGH);
   }
 }
 
