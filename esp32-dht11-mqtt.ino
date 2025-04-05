@@ -75,34 +75,63 @@ struct SensorData {
   float heatIndex;
 };
 
+// ---------------------- Helper Functions ----------------------
+void printWiFiStatus() {
+  Serial.println(WiFi.status() == WL_CONNECTED ? "WiFi connected!" : "WiFi not connected!");
+}
+
+void printMQTTStatus() {
+  Serial.println(client.connected() ? "MQTT connected!" : "MQTT not connected!");
+}
+
+void initializeNTP() {
+  if (!timeInitialized) {
+    configTime(UTC_OFFSET, UTC_OFFSET_DST, NTP_SERVER);
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo)) {
+      rtc.setTimeStruct(timeinfo);  // Set RTC time
+      timeInitialized = true;
+      Serial.println("NTP time initialized.");
+    } else {
+      Serial.println("Failed to initialize NTP time.");
+    }
+  }
+}
+
+void connectToWiFi() {
+  Serial.print("Connecting to WiFi...");
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+
+  const TickType_t retryDelay = pdMS_TO_TICKS(300); // Delay between retries
+  for (int retryCount = 0; retryCount < 30; retryCount++) {
+    if (WiFi.status() == WL_CONNECTED) break;
+    Serial.print(".");
+    vTaskDelay(retryDelay);
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nWiFi connected! IP: " + WiFi.localIP().toString());
+    initializeNTP();  // Initialize NTP after WiFi connection
+  } else {
+    Serial.println("\nWiFi connection failed, retrying...");
+  }
+}
+
+void connectToMQTT() {
+  Serial.print("Connecting to MQTT...");
+  if (client.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASS)) {
+    Serial.println("Connected!");
+    client.subscribe(SUBSCRIBE_TOPIC);  // Subscribe to the topic
+  } else {
+    Serial.println("MQTT connection failed, retrying...");
+  }
+}
+
 // ---------------------- WiFi Task ----------------------
 void wifiTask(void *pvParameters) {
   while (true) {
     if (WiFi.status() != WL_CONNECTED) {
-      Serial.print("Connecting to WiFi...");
-      WiFi.begin(WIFI_SSID, WIFI_PASS);
-
-      const TickType_t retryDelay = pdMS_TO_TICKS(300); // Delay between retries
-      for (int retryCount = 0; retryCount < 30; retryCount++) {
-        if (WiFi.status() == WL_CONNECTED) break;
-        Serial.print(".");
-        vTaskDelay(retryDelay);
-      }
-      if (WiFi.status() == WL_CONNECTED) {
-        Serial.println("\nWiFi connected! IP: " + WiFi.localIP().toString());
-
-        // Initialize NTP once WiFi is connected
-        if (!timeInitialized) {
-          configTime(UTC_OFFSET, UTC_OFFSET_DST, NTP_SERVER);
-          struct tm timeinfo;
-          if (getLocalTime(&timeinfo)) {
-            rtc.setTimeStruct(timeinfo);  // Set RTC time
-          }
-          timeInitialized = true;
-        }
-      } else {
-        Serial.println("\nWiFi failed, retrying...");
-      }
+      connectToWiFi();
     }
     vTaskDelay(pdMS_TO_TICKS(5000));  // Check every 5 seconds
   }
@@ -113,17 +142,10 @@ void mqttTask(void *pvParameters) {
   while (true) {
     if (WiFi.status() != WL_CONNECTED) {
       vTaskDelay(pdMS_TO_TICKS(1000));  // Wait for a second and then check again
-      continue;                         // Skip the rest of the loop and check WiFi again
+      continue;
     }
     if (!client.connected()) {
-      Serial.print("Connecting to MQTT...");
-
-      if (client.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASS)) {
-        Serial.println("Connected!");
-        client.subscribe(SUBSCRIBE_TOPIC);  // Subscribe to the topic
-      } else {
-        Serial.println("Failed, retrying...");
-      }
+      connectToMQTT();
     }
     client.loop();  // Process incoming MQTT messages
     vTaskDelay(pdMS_TO_TICKS(100));  // Check every 100 ms
