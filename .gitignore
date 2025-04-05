@@ -1,1 +1,19 @@
+# Exclude configuration file with sensitive information
 config.h
+
+# Exclude build artifacts and binaries
+*.o
+*.bin
+*.elf
+
+# Exclude temporary and log files
+*.tmp
+*.log
+
+# Exclude core dumps
+core.*
+
+# Exclude IDE and editor files/directories
+.vscode/
+.idea/
+build/
