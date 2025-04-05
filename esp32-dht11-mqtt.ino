@@ -1,3 +1,24 @@
+/**
+ * @file esp32-dht11-mqtt.ino
+ * @brief ESP32 DHT11 MQTT Application.
+ *
+ * This file implements the functionalities for reading data from a DHT sensor,
+ * publishing the sensor data via MQTT, and displaying information on a PCD8544 display.
+ *
+ * @details
+ * - Hardware: ESP32 development board, DHT11 sensor, Nokia 5110 LCD (PCD8544), optional DS1302 RTC.
+ * - Dependencies: WiFi, PubSubClient, DHT, Adafruit_GFX, Adafruit_PCD8544, ESP32Time, FreeRTOS.
+ */
+
+/* 
+  Project: ESP32 DHT11 MQTT Application
+  Purpose: Reads data from a DHT sensor, publishes sensor data via MQTT, and displays info on a PCD8544.
+  Hardware: ESP32 development board, DHT11 sensor, Nokia 5110 LCD (PCD8544), optional DS1302 RTC.
+  Dependencies: WiFi, PubSubClient, DHT, Adafruit_GFX, Adafruit_PCD8544, ESP32Time, FreeRTOS.
+*/
+
+// ---------------------- Configuration ----------------------
+
 #ifdef ESP8266
 #include <ESP8266WiFi.h>
 #else
@@ -12,7 +33,6 @@
 #include <Adafruit_PCD8544.h>
 #include <ESP32Time.h>
 
-// ---------------------- Configuration ----------------------
 // Pin configuration for onboard LED and DHT sensor
 #define LED_BUILTIN 2
 #define DHTPIN 12      // GPIO pin for DHT sensor
@@ -77,42 +97,57 @@
 #define PIN_DAT 27  // Data pin for RTC
 
 // ---------------------- Global Objects ----------------------
+// Declare sensor, WiFi, MQTT, display, and task queues.
+
 DHT dht(DHTPIN, DHTTYPE);                                                           // DHT sensor instance
-WiFiClient espClient;                                                               // WiFi client
+WiFiClient espClient;                                                               // WiFi client instance
 PubSubClient client(espClient);                                                     // MQTT client
-SPIClass displaySPI(VSPI);                                                          // SPI display
+SPIClass displaySPI(VSPI);                                                          // SPI interface for the display
 Adafruit_PCD8544 display = Adafruit_PCD8544(DC_PIN, CS_PIN, RST_PIN, &displaySPI);  // Display object
 
-QueueHandle_t sensorQueue;   // Queue for sensor data
-QueueHandle_t displayQueue;  // Queue for display data
+QueueHandle_t sensorQueue;   // Queue for sensor data between tasks
+QueueHandle_t displayQueue;  // Queue for passing display data
 
-// ---------------------- NTP Setup ----------------------
-bool timeInitialized = false;  // Flag to check if NTP time has been initialized
+bool timeInitialized = false;  // Flag to check NTP sync
+ESP32Time rtc(3 * 3600);       // RTC instance with GMT+3 offset (adjust as needed)
 
-ESP32Time rtc(3 * 3600);  // RTC instance with GMT+3 offset (adjust as needed)
-
-// ---------------------- Global SensorData Structure ----------------------
-struct SensorData {
+struct SensorData {  // Structure to hold sensor readings
   float humidity;
   float temperature;
   float heatIndex;
 };
 
 // ---------------------- Helper Functions ----------------------
+
+/**
+ * @brief Prints the current WiFi connection status to Serial.
+ *
+ * Logs "WiFi connected!" if connected, otherwise logs "WiFi not connected!".
+ */
 void printWiFiStatus() {
   Serial.println(WiFi.status() == WL_CONNECTED ? "WiFi connected!" : "WiFi not connected!");
 }
 
+/**
+ * @brief Prints the current MQTT connection status to Serial.
+ *
+ * Logs "MQTT connected!" if connected, otherwise logs "MQTT not connected!".
+ */
 void printMQTTStatus() {
   Serial.println(client.connected() ? "MQTT connected!" : "MQTT not connected!");
 }
 
+/**
+ * @brief Initializes NTP time synchronization and updates the RTC.
+ *
+ * Configures NTP with the provided UTC offsets and sets the timeInitialized flag upon successful sync.
+ */
 void initializeNTP() {
   if (!timeInitialized) {
     configTime(UTC_OFFSET, UTC_OFFSET_DST, NTP_SERVER);
     struct tm timeinfo;
     if (getLocalTime(&timeinfo)) {
-      rtc.setTimeStruct(timeinfo);  // Set RTC time
+      rtc.setTimeStruct(timeinfo);  // Update local RTC
       timeInitialized = true;
       Serial.println("NTP time initialized.");
     } else {
@@ -121,6 +156,11 @@ void initializeNTP() {
   }
 }
 
+/**
+ * @brief Connects to the configured WiFi network.
+ *
+ * Attempts connection with predefined credentials and initializes NTP on success.
+ */
 void connectToWiFi() {
   Serial.print("Connecting to WiFi: " + String(WIFI_SSID) + " with password: " + String(WIFI_PASS));
   WiFi.begin(WIFI_SSID, WIFI_PASS);
@@ -139,6 +179,11 @@ void connectToWiFi() {
   }
 }
 
+/**
+ * @brief Connects to the MQTT broker and subscribes to topics.
+ *
+ * Attempts MQTT connection using predefined credentials and subscribes to a topic if successful.
+ */
 void connectToMQTT() {
   Serial.print("Connecting to MQTT...");
   if (client.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASS)) {
@@ -149,34 +194,16 @@ void connectToMQTT() {
   }
 }
 
-// ---------------------- WiFi Task ----------------------
-void wifiTask(void *pvParameters) {
-  while (true) {
-    if (WiFi.status() != WL_CONNECTED) {
-      connectToWiFi();
-    }
-    // Delay for 5 seconds before the next check
-    vTaskDelay(pdMS_TO_TICKS(5000));
-  }
-}
-
-// ---------------------- MQTT Reconnect Task ----------------------
-void mqttTask(void *pvParameters) {
-  while (true) {
-    if (WiFi.status() != WL_CONNECTED) {
-      vTaskDelay(pdMS_TO_TICKS(1000));  // Wait for a second and then check again
-      continue;
-    }
-    if (!client.connected()) {
-      connectToMQTT();
-    }
-    client.loop();                   // Process incoming MQTT messages
-    vTaskDelay(pdMS_TO_TICKS(100));  // Check every 100 ms
-  }
-}
-
-// ---------------------- MQTT Callback ----------------------
-void callback(char *topic, byte *payload, unsigned int length) {
+/**
+ * @brief Callback function to handle incoming MQTT messages.
+ *
+ * Constructs the message from payload and toggles the onboard LED based on the received value.
+ *
+ * @param topic Pointer to the MQTT topic.
+ * @param payload Array containing the message payload.
+ * @param length Length of the payload.
+ */
+void mqttCallback(char *topic, byte *payload, unsigned int length) {
   String message;
   message.reserve(length + 1);
 
@@ -191,7 +218,53 @@ void callback(char *topic, byte *payload, unsigned int length) {
   }
 }
 
-// ---------------------- Sensor Task ----------------------
+// ---------------------- FreeRTOS Tasks ----------------------
+
+/**
+ * @brief FreeRTOS task to maintain the WiFi connection.
+ *
+ * Continuously checks the WiFi status every 5 seconds and reconnects if disconnected.
+ *
+ * @param pvParameters Task parameters.
+ */
+void wifiTask(void *pvParameters) {
+  while (true) {
+    if (WiFi.status() != WL_CONNECTED) {
+      connectToWiFi();
+    }
+    // Delay for 5 seconds before the next check
+    vTaskDelay(pdMS_TO_TICKS(5000));
+  }
+}
+
+/**
+ * @brief FreeRTOS task to manage the MQTT connection.
+ *
+ * Checks every 100 ms whether the MQTT client is connected, reconnecting and processing messages as needed.
+ *
+ * @param pvParameters Task parameters.
+ */
+void mqttTask(void *pvParameters) {
+  while (true) {
+    if (WiFi.status() != WL_CONNECTED) {
+      vTaskDelay(pdMS_TO_TICKS(1000));  // Wait for a second and then check again
+      continue;
+    }
+    if (!client.connected()) {
+      connectToMQTT();
+    }
+    client.loop();                   // Process incoming MQTT messages
+    vTaskDelay(pdMS_TO_TICKS(100));  // Check every 100 ms
+  }
+}
+
+/**
+ * @brief FreeRTOS task to read sensor data from the DHT sensor.
+ *
+ * Reads sensor values, validates them, and sends the data to both sensorQueue and displayQueue.
+ *
+ * @param pvParameters Task parameters.
+ */
 void sensorTask(void *pvParameters) {
   SensorData sensorData;
   while (true) {
@@ -224,7 +297,13 @@ void sensorTask(void *pvParameters) {
   }
 }
 
-// ---------------------- Publish Task ----------------------
+/**
+ * @brief FreeRTOS task to publish sensor data over MQTT.
+ *
+ * Waits for sensor data from sensorQueue and publishes it to the MQTT topic.
+ *
+ * @param pvParameters Task parameters.
+ */
 void publishTask(void *pvParameters) {
   SensorData sensorData;
   char payload[100];
@@ -247,7 +326,13 @@ void publishTask(void *pvParameters) {
   }
 }
 
-// ---------------------- Display Task ----------------------
+/**
+ * @brief FreeRTOS task to update the display.
+ *
+ * Refreshes the PCD8544 display with the current date, time, WiFi/MQTT status, and sensor readings.
+ *
+ * @param pvParameters Task parameters.
+ */
 void displayTask(void *pvParameters) {
   SensorData sensorData;
   char formattedDate[20];
@@ -288,7 +373,13 @@ void displayTask(void *pvParameters) {
   }
 }
 
-// Function to display the opening screen
+// ---------------------- Main Setup and Loop ----------------------
+
+/**
+ * @brief Displays the opening screen during startup.
+ *
+ * Shows a welcome message on the display for 3 seconds.
+ */
 void showOpeningScreen() {
   display.clearDisplay();
   display.setTextSize(1);
@@ -301,7 +392,11 @@ void showOpeningScreen() {
   delay(3000);  // Show opening screen for 3 seconds
 }
 
-// ---------------------- Setup ----------------------
+/**
+ * @brief The setup function.
+ *
+ * Initializes serial communication, sensor, WiFi, MQTT, display, and creates FreeRTOS tasks.
+ */
 void setup() {
   Serial.begin(115200);
   Serial.println(F("DHT Sensor with MQTT, PCD8544, and FreeRTOS"));
@@ -311,7 +406,7 @@ void setup() {
 
   WiFi.mode(WIFI_STA);
   client.setServer(MQTT_SERVER, MQTT_PORT);
-  client.setCallback(callback);
+  client.setCallback(mqttCallback);
   dht.begin();
 
   // Initialize Display
@@ -332,11 +427,15 @@ void setup() {
   xTaskCreatePinnedToCore(wifiTask, "WiFiTask", 2048, NULL, 1, NULL, 0);
   xTaskCreatePinnedToCore(mqttTask, "MQTTTask", 4096, NULL, 1, NULL, 0);
   xTaskCreatePinnedToCore(sensorTask, "SensorTask", 2048, NULL, 1, NULL, 1);
-  xTaskCreatePinnedToCore(publishTask, "PublishTask", 2048, NULL, 1, NULL, 1);
+  xTaskCreatePinnedToCore(publishTask, "PublishTask", 4096, NULL, 1, NULL, 1);
   xTaskCreatePinnedToCore(displayTask, "DisplayTask", 2048, NULL, 1, NULL, 1);
 }
 
-// ---------------------- Loop (Unused) ----------------------
+/**
+ * @brief The main loop function.
+ *
+ * Deletes itself to prevent execution, as FreeRTOS tasks handle the application logic.
+ */
 void loop() {
   vTaskDelete(NULL);  // Delete loop to prevent execution
 }
