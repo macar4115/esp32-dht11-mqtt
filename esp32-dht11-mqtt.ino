@@ -11,7 +11,6 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_PCD8544.h>
 #include <ESP32Time.h>
-#include "esp_task_wdt.h"  // Include ESP watchdog timer library
 
 // ---------------------- Configuration ----------------------
 // Pin configuration for onboard LED and DHT sensor
@@ -59,16 +58,11 @@
 
 // NTP Time configuration
 #define NTP_SERVER "pool.ntp.org"
-#define UTC_OFFSET 0   // UTC offset (no offset here, adjust as needed)
+#define UTC_OFFSET 0      // UTC offset (no offset here, adjust as needed)
 #define UTC_OFFSET_DST 0  // Daylight saving time offset (0 means no DST)
 
 // Interval for reading sensor data (20 seconds)
 #define POST_INTERVAL 20000
-
-// Watchdog configuration
-#ifndef WATCHDOG_TIMEOUT
-#define WATCHDOG_TIMEOUT 10  // Default watchdog timeout in seconds
-#endif
 
 // ---------------------- PCD8544 Display Pins ----------------------
 #define SCLK_PIN 18  // GPIO14 (D5)
@@ -83,17 +77,17 @@
 #define PIN_DAT 27  // Data pin for RTC
 
 // ---------------------- Global Objects ----------------------
-DHT dht(DHTPIN, DHTTYPE);    // DHT sensor instance
-WiFiClient espClient;        // WiFi client
-PubSubClient client(espClient); // MQTT client
-SPIClass displaySPI(VSPI);   // SPI display
-Adafruit_PCD8544 display = Adafruit_PCD8544(DC_PIN, CS_PIN, RST_PIN, &displaySPI); // Display object
+DHT dht(DHTPIN, DHTTYPE);                                                           // DHT sensor instance
+WiFiClient espClient;                                                               // WiFi client
+PubSubClient client(espClient);                                                     // MQTT client
+SPIClass displaySPI(VSPI);                                                          // SPI display
+Adafruit_PCD8544 display = Adafruit_PCD8544(DC_PIN, CS_PIN, RST_PIN, &displaySPI);  // Display object
 
 QueueHandle_t sensorQueue;   // Queue for sensor data
 QueueHandle_t displayQueue;  // Queue for display data
 
 // ---------------------- NTP Setup ----------------------
-bool timeInitialized = false; // Flag to check if NTP time has been initialized
+bool timeInitialized = false;  // Flag to check if NTP time has been initialized
 
 ESP32Time rtc(3 * 3600);  // RTC instance with GMT+3 offset (adjust as needed)
 
@@ -128,14 +122,13 @@ void initializeNTP() {
 }
 
 void connectToWiFi() {
-  Serial.print("Connecting to WiFi...");
+  Serial.print("Connecting to WiFi: " + String(WIFI_SSID) + " with password: " + String(WIFI_PASS));
   WiFi.begin(WIFI_SSID, WIFI_PASS);
-
-  const TickType_t retryDelay = pdMS_TO_TICKS(300); // Delay between retries
   for (int retryCount = 0; retryCount < 30; retryCount++) {
-    if (WiFi.status() == WL_CONNECTED) break;
+    if (WiFi.status() == WL_CONNECTED)
+      break;
     Serial.print(".");
-    vTaskDelay(retryDelay);
+    vTaskDelay(pdMS_TO_TICKS(300));  // Wait for 300 ms before retrying
   }
 
   if (WiFi.status() == WL_CONNECTED) {
@@ -159,18 +152,17 @@ void connectToMQTT() {
 // ---------------------- WiFi Task ----------------------
 void wifiTask(void *pvParameters) {
   while (true) {
-    esp_task_wdt_reset();  // Reset watchdog timer
     if (WiFi.status() != WL_CONNECTED) {
       connectToWiFi();
     }
-    vTaskDelay(pdMS_TO_TICKS(5000));  // Check every 5 seconds
+    // Delay for 5 seconds before the next check
+    vTaskDelay(pdMS_TO_TICKS(5000));
   }
 }
 
 // ---------------------- MQTT Reconnect Task ----------------------
 void mqttTask(void *pvParameters) {
   while (true) {
-    esp_task_wdt_reset();  // Reset watchdog timer
     if (WiFi.status() != WL_CONNECTED) {
       vTaskDelay(pdMS_TO_TICKS(1000));  // Wait for a second and then check again
       continue;
@@ -178,7 +170,7 @@ void mqttTask(void *pvParameters) {
     if (!client.connected()) {
       connectToMQTT();
     }
-    client.loop();  // Process incoming MQTT messages
+    client.loop();                   // Process incoming MQTT messages
     vTaskDelay(pdMS_TO_TICKS(100));  // Check every 100 ms
   }
 }
@@ -202,9 +194,7 @@ void callback(char *topic, byte *payload, unsigned int length) {
 // ---------------------- Sensor Task ----------------------
 void sensorTask(void *pvParameters) {
   SensorData sensorData;
-
   while (true) {
-    esp_task_wdt_reset();  // Reset watchdog timer
     // Read data from DHT sensor
     sensorData.humidity = dht.readHumidity();
     sensorData.temperature = dht.readTemperature();
@@ -229,7 +219,8 @@ void sensorTask(void *pvParameters) {
       Serial.println("DHT sensor read failed!");
     }
 
-    vTaskDelay(pdMS_TO_TICKS(POST_INTERVAL));  // Wait for the next read (20 seconds)
+    // Delay for 20 seconds before the next sensor reading
+    vTaskDelay(pdMS_TO_TICKS(20000));
   }
 }
 
@@ -238,7 +229,6 @@ void publishTask(void *pvParameters) {
   SensorData sensorData;
   char payload[100];
   while (true) {
-    esp_task_wdt_reset();  // Reset watchdog timer
     // Wait for data in the sensorQueue with a 200ms timeout
     if (xQueueReceive(sensorQueue, &sensorData, pdMS_TO_TICKS(200))) {
       Serial.println("Data received from sensorQueue: Hum=" + String(sensorData.humidity) + ", Temp=" + String(sensorData.temperature) + ", HeatIndex=" + String(sensorData.heatIndex));
@@ -260,11 +250,9 @@ void publishTask(void *pvParameters) {
 // ---------------------- Display Task ----------------------
 void displayTask(void *pvParameters) {
   SensorData sensorData;
-  struct tm timeinfo;
   char formattedDate[20];
   char formattedTime[10];
   while (true) {
-    esp_task_wdt_reset();  // Reset watchdog timer
     display.clearDisplay();
     display.setCursor(0, 0);
     display.setTextSize(1);
@@ -272,15 +260,15 @@ void displayTask(void *pvParameters) {
 
     // Update time every second after WiFi is connected
     if (timeInitialized) {
-        // Format and display date and time
-        snprintf(formattedDate, sizeof(formattedDate), "%02d-%02d-%04d", rtc.getDay(), rtc.getMonth()+1, rtc.getYear());
-        snprintf(formattedTime, sizeof(formattedTime), "%02d:%02d:%02d", rtc.getHour(true), rtc.getMinute(), rtc.getSecond());
+      // Format and display date and time
+      snprintf(formattedDate, sizeof(formattedDate), "%02d-%02d-%04d", rtc.getDay(), rtc.getMonth() + 1, rtc.getYear());
+      snprintf(formattedTime, sizeof(formattedTime), "%02d:%02d:%02d", rtc.getHour(true), rtc.getMinute(), rtc.getSecond());
 
-        // Display updated date and time
-        Serial.println(formattedDate);
-        Serial.println(formattedTime);
-        display.println(formattedDate);
-        display.println(formattedTime);
+      // Display updated date and time
+      Serial.println(formattedDate);
+      Serial.println(formattedTime);
+      display.println(formattedDate);
+      display.println(formattedTime);
     }
 
     // Display WiFi and MQTT connection status
@@ -324,16 +312,6 @@ void setup() {
   // Create queues for sensor data and display updates
   sensorQueue = xQueueCreate(5, sizeof(SensorData));
   displayQueue = xQueueCreate(1, sizeof(SensorData));
-
-  // Initialize watchdog timer
-  esp_task_wdt_init(WATCHDOG_TIMEOUT, true);  // Enable panic on timeout
-  esp_task_wdt_add(NULL);  // Add the current task to the watchdog
-
-  // Set up a panic handler to reset the device on watchdog timeout
-  esp_register_freertos_reset_handler([]() {
-    Serial.println("Watchdog timeout! Resetting device...");
-    esp_restart();  // Restart the device
-  });
 
   // Create FreeRTOS tasks
   xTaskCreatePinnedToCore(wifiTask, "WiFiTask", 2048, NULL, 1, NULL, 0);

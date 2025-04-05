@@ -54,7 +54,7 @@ Define your WiFi credentials in the code to enable the device to connect to your
 Set up the MQTT broker details to enable data publishing and subscription:
 
 ```cpp
-#define MQTT_SERVER "mqtt3.thingspeak.com"  // MQTT broker address
+#define MQTT_SERVER "your_mqtt_server"  // MQTT broker address
 #define MQTT_PORT 1883  // MQTT broker port
 #define MQTT_CLIENT_ID "your_client_id"  // Unique client ID for the MQTT connection
 #define MQTT_USER "your_user"  // MQTT username
