@@ -10,8 +10,8 @@
 #include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_PCD8544.h>
-
 #include <ESP32Time.h>
+#include "esp_task_wdt.h"  // Include ESP watchdog timer library
 
 // ---------------------- Configuration ----------------------
 // Pin configuration for onboard LED and DHT sensor
@@ -20,17 +20,42 @@
 #define DHTTYPE DHT11  // DHT sensor type
 
 // WiFi credentials
+#ifndef WIFI_SSID
 #define WIFI_SSID "your_wifi_ssid"
+#endif
+
+#ifndef WIFI_PASS
 #define WIFI_PASS "your_wifi_password"
+#endif
 
 // MQTT Broker configuration
+#ifndef MQTT_SERVER
 #define MQTT_SERVER "your_mqtt_server"
+#endif
+
+#ifndef MQTT_PORT
 #define MQTT_PORT 1883
+#endif
+
+#ifndef MQTT_CLIENT_ID
 #define MQTT_CLIENT_ID "your_mqtt_client_id"
+#endif
+
+#ifndef MQTT_USER
 #define MQTT_USER "your_mqtt_username"
+#endif
+
+#ifndef MQTT_PASS
 #define MQTT_PASS "your_mqtt_password"
+#endif
+
+#ifndef PUBLISH_TOPIC
 #define PUBLISH_TOPIC "your_publish_topic"
+#endif
+
+#ifndef SUBSCRIBE_TOPIC
 #define SUBSCRIBE_TOPIC "your_subscribe_topic"
+#endif
 
 // NTP Time configuration
 #define NTP_SERVER "pool.ntp.org"
@@ -40,8 +65,12 @@
 // Interval for reading sensor data (20 seconds)
 #define POST_INTERVAL 20000
 
+// Watchdog configuration
+#ifndef WATCHDOG_TIMEOUT
+#define WATCHDOG_TIMEOUT 10  // Default watchdog timeout in seconds
+#endif
+
 // ---------------------- PCD8544 Display Pins ----------------------
-// Pins for PCD8544 display (LCD)
 #define SCLK_PIN 18  // GPIO14 (D5)
 #define DIN_PIN 23   // GPIO13 (D7)
 #define DC_PIN 5     // GPIO12 (D6)
@@ -130,6 +159,7 @@ void connectToMQTT() {
 // ---------------------- WiFi Task ----------------------
 void wifiTask(void *pvParameters) {
   while (true) {
+    esp_task_wdt_reset();  // Reset watchdog timer
     if (WiFi.status() != WL_CONNECTED) {
       connectToWiFi();
     }
@@ -140,6 +170,7 @@ void wifiTask(void *pvParameters) {
 // ---------------------- MQTT Reconnect Task ----------------------
 void mqttTask(void *pvParameters) {
   while (true) {
+    esp_task_wdt_reset();  // Reset watchdog timer
     if (WiFi.status() != WL_CONNECTED) {
       vTaskDelay(pdMS_TO_TICKS(1000));  // Wait for a second and then check again
       continue;
@@ -173,6 +204,7 @@ void sensorTask(void *pvParameters) {
   SensorData sensorData;
 
   while (true) {
+    esp_task_wdt_reset();  // Reset watchdog timer
     // Read data from DHT sensor
     sensorData.humidity = dht.readHumidity();
     sensorData.temperature = dht.readTemperature();
@@ -206,6 +238,7 @@ void publishTask(void *pvParameters) {
   SensorData sensorData;
   char payload[100];
   while (true) {
+    esp_task_wdt_reset();  // Reset watchdog timer
     // Wait for data in the sensorQueue with a 200ms timeout
     if (xQueueReceive(sensorQueue, &sensorData, pdMS_TO_TICKS(200))) {
       Serial.println("Data received from sensorQueue: Hum=" + String(sensorData.humidity) + ", Temp=" + String(sensorData.temperature) + ", HeatIndex=" + String(sensorData.heatIndex));
@@ -231,6 +264,7 @@ void displayTask(void *pvParameters) {
   char formattedDate[20];
   char formattedTime[10];
   while (true) {
+    esp_task_wdt_reset();  // Reset watchdog timer
     display.clearDisplay();
     display.setCursor(0, 0);
     display.setTextSize(1);
@@ -290,6 +324,16 @@ void setup() {
   // Create queues for sensor data and display updates
   sensorQueue = xQueueCreate(5, sizeof(SensorData));
   displayQueue = xQueueCreate(1, sizeof(SensorData));
+
+  // Initialize watchdog timer
+  esp_task_wdt_init(WATCHDOG_TIMEOUT, true);  // Enable panic on timeout
+  esp_task_wdt_add(NULL);  // Add the current task to the watchdog
+
+  // Set up a panic handler to reset the device on watchdog timeout
+  esp_register_freertos_reset_handler([]() {
+    Serial.println("Watchdog timeout! Resetting device...");
+    esp_restart();  // Restart the device
+  });
 
   // Create FreeRTOS tasks
   xTaskCreatePinnedToCore(wifiTask, "WiFiTask", 2048, NULL, 1, NULL, 0);
