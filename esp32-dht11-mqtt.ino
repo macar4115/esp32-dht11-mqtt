@@ -14,54 +14,59 @@
 #include <ESP32Time.h>
 
 // ---------------------- Configuration ----------------------
+// Pin configuration for onboard LED and DHT sensor
 #define LED_BUILTIN 2
 #define DHTPIN 12      // GPIO pin for DHT sensor
 #define DHTTYPE DHT11  // DHT sensor type
 
+// WiFi credentials
 #define WIFI_SSID "TTNET_ZyXEL_YV37"
 #define WIFI_PASS "c42416eF4AdEb"
 
+// MQTT Broker configuration
 #define MQTT_SERVER "mqtt3.thingspeak.com"
 #define MQTT_PORT 1883
-
 #define MQTT_CLIENT_ID "AQUxLCcFDzsHIQkKESwlPR4"
 #define MQTT_USER "AQUxLCcFDzsHIQkKESwlPR4"
 #define MQTT_PASS "rW4XzewfWqCu3QOm64Wspo5N"
-
 #define PUBLISH_TOPIC "channels/2835504/publish"
 #define SUBSCRIBE_TOPIC "channels/2835504/subscribe/fields/field1"
 
+// NTP Time configuration
 #define NTP_SERVER "pool.ntp.org"
-#define UTC_OFFSET (3 * 3600)
-#define UTC_OFFSET_DST 0
+#define UTC_OFFSET 0   // UTC offset (no offset here, adjust as needed)
+#define UTC_OFFSET_DST 0  // Daylight saving time offset (0 means no DST)
 
-#define POST_INTERVAL 20000  // 20 seconds between sensor data reads
+// Interval for reading sensor data (20 seconds)
+#define POST_INTERVAL 20000
 
 // ---------------------- PCD8544 Display Pins ----------------------
+// Pins for PCD8544 display (LCD)
 #define SCLK_PIN 18  // GPIO14 (D5)
 #define DIN_PIN 23   // GPIO13 (D7)
 #define DC_PIN 5     // GPIO12 (D6)
 #define CS_PIN 17    // GPIO15 (D8)
 #define RST_PIN 16   // GPIO2  (D4)
 
-// DS1302 RTC instance (Define your RTC pins)
-#define PIN_ENA 26  // Define your EN pin
-#define PIN_CLK 14  // Define your CLK pin
-#define PIN_DAT 27  // Define your DAT pin
+// DS1302 RTC (Real-time clock) pins (if using RTC)
+#define PIN_ENA 26  // Enable pin for RTC
+#define PIN_CLK 14  // Clock pin for RTC
+#define PIN_DAT 27  // Data pin for RTC
 
 // ---------------------- Global Objects ----------------------
-DHT dht(DHTPIN, DHTTYPE);
-WiFiClient espClient;
-PubSubClient client(espClient);
-SPIClass displaySPI(VSPI);
-Adafruit_PCD8544 display = Adafruit_PCD8544(DC_PIN, CS_PIN, RST_PIN, &displaySPI);
+DHT dht(DHTPIN, DHTTYPE);    // DHT sensor instance
+WiFiClient espClient;        // WiFi client
+PubSubClient client(espClient); // MQTT client
+SPIClass displaySPI(VSPI);   // SPI display
+Adafruit_PCD8544 display = Adafruit_PCD8544(DC_PIN, CS_PIN, RST_PIN, &displaySPI); // Display object
 
-QueueHandle_t sensorQueue;
-QueueHandle_t displayQueue;
+QueueHandle_t sensorQueue;   // Queue for sensor data
+QueueHandle_t displayQueue;  // Queue for display data
 
 // ---------------------- NTP Setup ----------------------
-// Flag to indicate if time has been initialized
-bool timeInitialized = false;
+bool timeInitialized = false; // Flag to check if NTP time has been initialized
+
+ESP32Time rtc(3 * 3600);  // RTC instance with GMT+3 offset (adjust as needed)
 
 // ---------------------- Global SensorData Structure ----------------------
 struct SensorData {
@@ -77,7 +82,7 @@ void wifiTask(void *pvParameters) {
       Serial.print("Connecting to WiFi...");
       WiFi.begin(WIFI_SSID, WIFI_PASS);
 
-      const TickType_t retryDelay = pdMS_TO_TICKS(300);
+      const TickType_t retryDelay = pdMS_TO_TICKS(300); // Delay between retries
       for (int retryCount = 0; retryCount < 30; retryCount++) {
         if (WiFi.status() == WL_CONNECTED) break;
         Serial.print(".");
@@ -89,6 +94,10 @@ void wifiTask(void *pvParameters) {
         // Initialize NTP once WiFi is connected
         if (!timeInitialized) {
           configTime(UTC_OFFSET, UTC_OFFSET_DST, NTP_SERVER);
+          struct tm timeinfo;
+          if (getLocalTime(&timeinfo)) {
+            rtc.setTimeStruct(timeinfo);  // Set RTC time
+          }
           timeInitialized = true;
         }
       } else {
@@ -111,12 +120,12 @@ void mqttTask(void *pvParameters) {
 
       if (client.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASS)) {
         Serial.println("Connected!");
-        client.subscribe(SUBSCRIBE_TOPIC);
+        client.subscribe(SUBSCRIBE_TOPIC);  // Subscribe to the topic
       } else {
         Serial.println("Failed, retrying...");
       }
     }
-    client.loop();
+    client.loop();  // Process incoming MQTT messages
     vTaskDelay(pdMS_TO_TICKS(100));  // Check every 100 ms
   }
 }
@@ -133,7 +142,7 @@ void callback(char *topic, byte *payload, unsigned int length) {
   Serial.println("Message received [" + String(topic) + "]: " + message);
 
   if (String(topic) == SUBSCRIBE_TOPIC) {
-    digitalWrite(LED_BUILTIN, message.equals("1") ? LOW : HIGH);  // Control the LED state based on the message
+    digitalWrite(LED_BUILTIN, message.equals("1") ? LOW : HIGH);  // Toggle LED based on the message
   }
 }
 
@@ -142,20 +151,21 @@ void sensorTask(void *pvParameters) {
   SensorData sensorData;
 
   while (true) {
-    // Read sensor data from the DHT sensor
+    // Read data from DHT sensor
     sensorData.humidity = dht.readHumidity();
     sensorData.temperature = dht.readTemperature();
     sensorData.heatIndex = dht.computeHeatIndex(sensorData.temperature, sensorData.humidity, false);
 
+    // Check if sensor readings are valid
     if (!isnan(sensorData.humidity) && !isnan(sensorData.temperature)) {
-      // Send sensor data to the sensorQueue
+      // Send sensor data to sensorQueue
       if (xQueueSend(sensorQueue, &sensorData, portMAX_DELAY) == pdTRUE) {
         Serial.println("Sensor data sent to sensorQueue");
       } else {
         Serial.println("Failed to send sensor data to sensorQueue");
       }
 
-      // Send sensor data to the displayQueue (overwrite the current value)
+      // Overwrite the current sensor data in the displayQueue
       if (xQueueOverwrite(displayQueue, &sensorData) == pdTRUE) {
         Serial.println("Sensor data sent to displayQueue");
       } else {
@@ -165,7 +175,7 @@ void sensorTask(void *pvParameters) {
       Serial.println("DHT sensor read failed!");
     }
 
-    vTaskDelay(pdMS_TO_TICKS(POST_INTERVAL));  // Wait for the next data read (20 seconds)
+    vTaskDelay(pdMS_TO_TICKS(POST_INTERVAL));  // Wait for the next read (20 seconds)
   }
 }
 
@@ -174,11 +184,13 @@ void publishTask(void *pvParameters) {
   SensorData sensorData;
   char payload[100];
   while (true) {
-    if (xQueueReceive(sensorQueue, &sensorData, pdMS_TO_TICKS(200))) {  // 200ms timeout
+    // Wait for data in the sensorQueue with a 200ms timeout
+    if (xQueueReceive(sensorQueue, &sensorData, pdMS_TO_TICKS(200))) {
       Serial.println("Data received from sensorQueue: Hum=" + String(sensorData.humidity) + ", Temp=" + String(sensorData.temperature) + ", HeatIndex=" + String(sensorData.heatIndex));
       snprintf(payload, sizeof(payload), "field1=%.2f&field2=%.2f&field3=%.2f&status=MQTTPUBLISH",
                sensorData.humidity, sensorData.temperature, sensorData.heatIndex);
 
+      // Publish data to the MQTT topic
       if (client.publish(PUBLISH_TOPIC, payload)) {
         Serial.println("Published: " + String(payload));
       } else {
@@ -204,30 +216,30 @@ void displayTask(void *pvParameters) {
 
     // Update time every second after WiFi is connected
     if (timeInitialized) {
-      if (getLocalTime(&timeinfo)) {
         // Format and display date and time
-        snprintf(formattedDate, sizeof(formattedDate), "%02d-%02d-%04d", timeinfo.tm_mday, timeinfo.tm_mon + 1, timeinfo.tm_year + 1900);
-        snprintf(formattedTime, sizeof(formattedTime), "%02d:%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+        snprintf(formattedDate, sizeof(formattedDate), "%02d-%02d-%04d", rtc.getDay(), rtc.getMonth()+1, rtc.getYear());
+        snprintf(formattedTime, sizeof(formattedTime), "%02d:%02d:%02d", rtc.getHour(true), rtc.getMinute(), rtc.getSecond());
 
         // Display updated date and time
         Serial.println(formattedDate);
         Serial.println(formattedTime);
         display.println(formattedDate);
         display.println(formattedTime);
-      }
     }
 
     // Display WiFi and MQTT connection status
     display.print("WiFi:" + String(WiFi.status() == WL_CONNECTED ? "OK" : "NO"));
     display.println(" MQT:" + String(client.connected() ? "OK" : "NO"));
 
-    if (xQueueReceive(displayQueue, &sensorData, pdMS_TO_TICKS(200))) {  // 200ms timeout
+    // Display sensor data if available
+    if (xQueueReceive(displayQueue, &sensorData, pdMS_TO_TICKS(200))) {
       Serial.println("Displaying data: Hum=" + String(sensorData.humidity) + ", Temp=" + String(sensorData.temperature) + ", HeatIndex=" + String(sensorData.heatIndex));
     }
     display.println("Hum:" + String(sensorData.humidity) + "%");
     display.println("Temp:" + String(sensorData.temperature) + "C");
     display.println("HeatIdx:" + String(sensorData.heatIndex) + "C");
     display.display();
+
     vTaskDelay(pdMS_TO_TICKS(2000));  // Update display every 2 seconds
   }
 }
