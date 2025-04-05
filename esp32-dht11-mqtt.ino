@@ -119,11 +119,20 @@ struct SensorData {  // Structure to hold sensor readings
 
 // ---------------------- Helper Functions ----------------------
 
-// Optimized helper functions using F() macro
+/**
+  * @brief Prints the current WiFi connection status to Serial.
+  *
+  * Logs "WiFi connected!" if connected, otherwise logs "WiFi not connected!".
+  */
 void printWiFiStatus() {
   Serial.println(WiFi.status() == WL_CONNECTED ? F("WiFi connected!") : F("WiFi not connected!"));
 }
 
+/**
+  * @brief Prints the current MQTT connection status to Serial.
+  *
+  * Logs "MQTT connected!" if connected, otherwise logs "MQTT not connected!".
+  */
 void printMQTTStatus() {
   Serial.println(client.connected() ? F("MQTT connected!") : F("MQTT not connected!"));
 }
@@ -189,7 +198,15 @@ void connectToMQTT() {
   }
 }
 
-// Optimized MQTT callback using String(payload, length)
+/**
+  * @brief Callback function to handle incoming MQTT messages.
+  *
+  * Constructs the message from payload and toggles the onboard LED based on the received value.
+  *
+  * @param topic Pointer to the MQTT topic.
+  * @param payload Array containing the message payload.
+  * @param length Length of the payload.
+  */
 void mqttCallback(char *topic, byte *payload, unsigned int length) {
   String message(payload, length);
   Serial.print(F("Message received ["));
