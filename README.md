@@ -7,7 +7,7 @@ This project implements a DHT11 sensor (for temperature and humidity), an MQTT c
 - **WiFi Connectivity**: Connects to a WiFi network and initializes an NTP time server.
 - **MQTT Communication**: Publishes sensor data to ThingSpeak via MQTT and subscribes to control messages for the onboard LED.
 - **DHT11 Sensor**: Reads temperature and humidity, calculates heat index, and publishes the data.
-- **PCD8544 LCD Display**: Displays real-time data including sensor readings and connection status.
+- **Display Options**: Provides a dynamic real-time display of sensor readings and shows WiFi and MQTT connection status via the PCD8544 LCD. Alternatively, use a standard 16x2 LCD Display (LiquidCrystal) for alphanumeric output.
 - **FreeRTOS Tasks**: Utilizes FreeRTOS for handling multiple tasks (WiFi connection, MQTT, sensor reading, data publishing, and display updates).
 - **RTC (Real-Time Clock)**: Synchronizes time using NTP and displays the current date and time.
 - **Opening Screen**: Displays a welcome message on startup.
@@ -16,19 +16,16 @@ This project implements a DHT11 sensor (for temperature and humidity), an MQTT c
 
 - **ESP8266/ESP32 Microcontroller** (e.g., NodeMCU, Wemos D1 Mini, ESP32 Dev Board)
 - **DHT11 Sensor**: For measuring temperature and humidity.
-- **PCD8544 LCD Display**: An 84x48 pixel monochrome display for showing data.
+- **Display Options**:
+  - **PCD8544 LCD Display**: An 84x48 pixel monochrome display.  
+    - Pin Configuration:
+      - **SCLK (Serial Clock)**: GPIO18 (D5)
+      - **DIN (Data In)**: GPIO23 (D7)
+      - **DC (Data/Command)**: GPIO5 (D1)
+      - **CS (Chip Select)**: GPIO17 (D0)
+      - **RST (Reset)**: GPIO16 (D4)
+  - **16x2 LCD Display (LiquidCrystal)**: Alternatively, use a standard 16x2 LCD display. Ensure wiring is adjusted accordingly and the LiquidCrystal library is included.
 - **LED**: The onboard LED will be controlled via MQTT messages.
-
-### Pin Configuration
-
-- **DHT11 Sensor Pin**: GPIO12 (D6)
-- **PCD8544 Display**:
-  - **SCLK (Serial Clock)**: GPIO18 (D5)
-  - **DIN (Data In)**: GPIO23 (D7)
-  - **DC (Data/Command)**: GPIO5 (D1)
-  - **CS (Chip Select)**: GPIO17 (D0)
-  - **RST (Reset)**: GPIO16 (D4)
-- **LED Pin**: GPIO2 (Built-in LED on most boards)
 
 ## Dependencies
 
