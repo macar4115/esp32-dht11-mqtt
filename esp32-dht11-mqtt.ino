@@ -1,12 +1,12 @@
 /**
  * @file esp32-dht11-mqtt.ino
- * @brief ESP32 DHT11 MQTT and Display Application
+ * @brief ESP32 application reading DHT11 data, publishing via MQTT, and displaying info.
  *
- * Version: 1.1
- * Updated: 2023-10-XX
+ * Version: 1.2
+ * Updated: 20/04/2025
  *
  * Reads data from a DHT sensor, publishes the data over MQTT,
- * and displays the status and sensor readings on a selected display.
+ * and displays sensor readings on a selected display.
  *
  * Hardware: ESP32, DHT11, Nokia 5110 LCD/PCD8544, optional DS1302 RTC.
  * Dependencies: WiFi, PubSubClient, DHT, Adafruit_GFX, Adafruit_PCD8544, ESP32Time, FreeRTOS.
@@ -14,7 +14,7 @@
 
 // ---------------------- Includes ----------------------
 
-// Standard Arduino core
+// Standard Arduino core library
 #include <Arduino.h>
 
 #ifdef ESP8266
@@ -36,13 +36,13 @@
 #include "WString.h"
 
 // Configuration headers (local)
-#include "default_config.h"  // Include default credentials
+#include "default_config.h"  // Default credentials
 
 // WiFi & MQTT setup helper libraries
 #include <WiFiManager.h>  // https://github.com/tzapu/WiFiManager
 #include <ArduinoJson.h>
 
-// Screen selection - include display libraries based on your configuration
+// Display libraries based on configuration
 #if SCREEN_SELECTION == SCREEN_SELECTION_LCD
 #include <LiquidCrystal.h>
 #elif SCREEN_SELECTION == SCREEN_SELECTION_PCD8544
@@ -51,11 +51,10 @@
 #include <Adafruit_PCD8544.h>
 #endif
 
-// Screen selection macros
+// ---------------------- Screen Selection ----------------------
 #define SCREEN_SELECTION_LCD 1
 #define SCREEN_SELECTION_PCD8544 2
 
-// Choose a screen: set to SCREEN_SELECTION_LCD or SCREEN_SELECTION_PCD8544
 #ifndef SCREEN_SELECTION
 #define SCREEN_SELECTION SCREEN_SELECTION_LCD
 #endif
@@ -75,19 +74,19 @@
 
 // NTP Time configuration
 #define NTP_SERVER "pool.ntp.org"
-#define UTC_OFFSET 0      // UTC offset (no offset here, adjust as needed)
-#define UTC_OFFSET_DST 0  // Daylight saving time offset (0 means no DST)
+#define UTC_OFFSET 0      // UTC offset; adjust if needed
+#define UTC_OFFSET_DST 0  // DST offset; 0 if not applicable
 
 // Interval for reading sensor data (20 seconds)
 #define POST_INTERVAL 20000
 
-// DS1302 RTC (Real-time clock) pins (if using RTC)
+// DS1302 RTC pins (if using RTC)
 #define PIN_ENA 26  // Enable pin for RTC
 #define PIN_CLK 14  // Clock pin for RTC
 #define PIN_DAT 27  // Data pin for RTC
 
 #if SCREEN_SELECTION == SCREEN_SELECTION_LCD
-// ---------------------- LCD Pin Macros ----------------------
+// ---------------------- LCD Pin Configuration ----------------------
 #define LCD_RS_PIN 19  // LCD RS pin
 #define LCD_EN_PIN 23  // LCD Enable pin
 #define LCD_D4_PIN 18  // LCD Data pin 4
@@ -95,12 +94,12 @@
 #define LCD_D6_PIN 16  // LCD Data pin 6
 #define LCD_D7_PIN 15  // LCD Data pin 7
 #elif SCREEN_SELECTION == SCREEN_SELECTION_PCD8544
-// ---------------------- Conditional PCD8544 Display Pins ----------------------
-#define SCLK_PIN 18  // GPIO14 (D5)
-#define DIN_PIN 23   // GPIO13 (D7)
-#define DC_PIN 5     // GPIO12 (D6)
-#define CS_PIN 17    // GPIO15 (D8)
-#define RST_PIN 16   // GPIO2  (D4)
+// ---------------------- PCD8544 Display Pin Configuration ----------------------
+#define SCLK_PIN 18  // SCLK
+#define DIN_PIN 23   // DIN
+#define DC_PIN 5     // DC
+#define CS_PIN 17    // CS
+#define RST_PIN 16   // RST
 #endif
 
 // ---------------------- Enumerations ----------------------
@@ -111,12 +110,12 @@ enum DeviceMode {
 };
 
 // ---------------------- Global Configuration ----------------------
-// (Defines/Constants that apply globally are already set above)
+// (Constants and configuration defined above apply globally)
 
 // ---------------------- Global Variables ----------------------
 
-// Device mode
-DeviceMode deviceMode;  // Holds current operational mode
+// Current device mode
+DeviceMode deviceMode;
 
 // WiFi & MQTT configuration strings
 String WifiSSID = "";
@@ -130,12 +129,12 @@ String SubscribeTopic = "";
 int MqttPort;  // MQTT broker port
 
 // Flags
-bool timeInitialized = false;    // Flag to indicate if NTP is synchronized
-bool updateDisplayFlag = false;  // Flag to trigger display updates
+bool timeInitialized = false;    // True after successful NTP synchronization
+bool updateDisplayFlag = false;  // Triggers display updates
 
 // Queue handles for inter-task communication
-QueueHandle_t sensorQueue;   // For passing sensor data
-QueueHandle_t displayQueue;  // For passing display update info
+QueueHandle_t sensorQueue;   // Transmit sensor data
+QueueHandle_t displayQueue;  // Transmit display update information
 
 // ---------------------- Global Objects ----------------------
 
@@ -151,17 +150,16 @@ Adafruit_PCD8544 display(DC_PIN, CS_PIN, RST_PIN, &displaySPI);  // PCD8544 Disp
 DHT dht(DHTPIN, DHTTYPE);  // DHT sensor
 
 // WiFi & MQTT instances
-WiFiManager wifiMqttManager;     // Manager for WiFi & MQTT configuration and operations
+WiFiManager wifiMqttManager;     // WiFi & MQTT configuration manager
 WiFiClient espClient;            // WiFi client instance
-PubSubClient client(espClient);  // MQTT client using espClient
+PubSubClient client(espClient);  // MQTT client using the WiFi client
 
 // RTC instance
-ESP32Time rtc(3 * 3600);  // RTC object with specified GMT+3 offset
+ESP32Time rtc(3 * 3600);  // RTC object with GMT+3 offset
 
 // ---------------------- Struct Definitions ----------------------
-
 /**
- * @brief Structure to hold sensor readings.
+ * @brief Structure for holding sensor readings.
  */
 struct SensorData {
   float humidity;
@@ -170,20 +168,15 @@ struct SensorData {
 };
 
 // ---------------------- Helper Functions ----------------------
-
 /**
- * @brief Prints the current WiFi connection status to Serial.
- *
- * Logs "WiFi connected!" if connected, otherwise logs "WiFi not connected!".
+ * @brief Prints the current WiFi connection status.
  */
 void printWiFiStatus() {
   Serial.println(WiFi.status() == WL_CONNECTED ? F("WiFi connected!") : F("WiFi not connected!"));
 }
 
 /**
- * @brief Prints the current MQTT connection status to Serial.
- *
- * Logs "MQTT connected!" if connected, otherwise logs "MQTT not connected!".
+ * @brief Prints the current MQTT connection status.
  */
 void printMQTTStatus() {
   Serial.println(client.connected() ? F("MQTT connected!") : F("MQTT not connected!"));
@@ -192,8 +185,8 @@ void printMQTTStatus() {
 /**
  * @brief Loads the device mode configuration from SPIFFS.
  *
- * Reads the file "/device_mode.cfg" to determine the operation mode.
- * Accepted values are "NORMAL", "CONFIG", or "SLEEP". Defaults to NORMAL_MODE if not found.
+ * Reads "/device_mode.cfg" and sets the device mode. Valid values:
+ * "NORMAL", "CONFIG", "SLEEP". Defaults to NORMAL_MODE if not found.
  */
 void loadDeviceModeConfig() {
   deviceMode = NORMAL_MODE;
@@ -219,7 +212,7 @@ void loadDeviceModeConfig() {
 /**
  * @brief Saves the current device mode configuration to SPIFFS.
  *
- * Writes the current device mode (NORMAL, CONFIG, or SLEEP) to the file "/device_mode.cfg".
+ * Writes the current mode ("NORMAL", "CONFIG", or "SLEEP") to "/device_mode.cfg".
  */
 void saveDeviceModeConfig() {
   if (!SPIFFS.begin(true)) {
@@ -252,8 +245,16 @@ void saveDeviceModeConfig() {
   Serial.println("Device mode saved: " + modeStr);
 }
 
+/**
+ * @brief Loads WiFi and MQTT configuration from SPIFFS.
+ *
+ * First, assigns default values from defined macros. Then, if a valid "/config.json"
+ * is found, updates the configuration from the JSON document.
+ *
+ * @return true if the configuration file was parsed successfully, false otherwise.
+ */
 bool loadWiFiMQTTConfig() {
-  // Correct the assignment by using the exact global variable names
+  // Use default configuration values
   WifiSSID = WIFI_SSID;
   WifiPass = WIFI_PASS;
   MqttServer = MQTT_SERVER;
@@ -292,6 +293,11 @@ bool loadWiFiMQTTConfig() {
   return false;
 }
 
+/**
+ * @brief Saves the current WiFi and MQTT configuration to SPIFFS.
+ *
+ * Writes configuration parameters to "/config.json" in JSON format.
+ */
 void saveWiFiMQTTConfig() {
   DynamicJsonDocument doc(512);
   doc["wifiSSID"] = WifiSSID;
@@ -313,18 +319,24 @@ void saveWiFiMQTTConfig() {
   }
 }
 
+/**
+ * @brief Begins the WiFi/MQTT configuration portal.
+ *
+ * Displays a configuration portal to update WiFi and MQTT settings.
+ * After obtaining input, saves new settings and restarts the device.
+ */
 void beginWiFiMQTTConfig() {
-  // In case you need to load stored credentials first:
-  // If you have a custom load function, call it here; otherwise you can call loadWiFiMQTTConfig()
+  // Use stored credentials if available
+  // (Call loadWiFiMQTTConfig() if desired before proceeding)
 
-  // Get the device MAC address to form the AP SSID.
+  // Generate an AP SSID based on the device's MAC address.
   String _mac = String(WiFi.macAddress());
   _mac.toLowerCase();
   _mac.replace(":", "");
   _mac.replace("240ac4", "a");  // vendor = Espressif Inc.
   String apSSID = "ESP_" + _mac;
 
-  // Define custom parameters for MQTT configuration (values from JSON take precedence)
+  // Define custom MQTT parameters for the configuration portal.
   WiFiManagerParameter custom_mqtt_server("server", "MQTT Server", MqttServer.c_str(), 40);
   WiFiManagerParameter custom_mqtt_clientid("clientid", "MQTT Client ID", MqttClientID.c_str(), 40);
   WiFiManagerParameter custom_mqtt_user("mqttuser", "MQTT User", MqttUser.c_str(), 40);
@@ -332,7 +344,7 @@ void beginWiFiMQTTConfig() {
   WiFiManagerParameter custom_publish_topic("pubtopic", "Publish Topic", PublishTopic.c_str(), 40);
   WiFiManagerParameter custom_subscribe_topic("subtopic", "Subscribe Topic", SubscribeTopic.c_str(), 40);
 
-  // Use the global WiFiManager instance instead of 'wm'
+  // Add custom parameters to the WiFiManager.
   wifiMqttManager.addParameter(&custom_mqtt_server);
   wifiMqttManager.addParameter(&custom_mqtt_clientid);
   wifiMqttManager.addParameter(&custom_mqtt_user);
@@ -340,20 +352,20 @@ void beginWiFiMQTTConfig() {
   wifiMqttManager.addParameter(&custom_publish_topic);
   wifiMqttManager.addParameter(&custom_subscribe_topic);
 
-  // Add a custom HTML head element to display the MQTT port on the configuration page.
+  // Add a custom HTML head element to display the MQTT port.
   wifiMqttManager.setCustomHeadElement("<p style='color:blue;text-align:center;'>MQTT Port is set to: 1883</p>");
 
-  // Run the configuration portal. Will block until connected.
+  // Launch the configuration portal; blocks until connection is successful.
   if (!wifiMqttManager.autoConnect(apSSID.c_str())) {
     Serial.println("Failed to connect and hit timeout");
     ESP.restart();
   }
 
-  // Save WiFi credentials.
+  // Save the received WiFi credentials.
   WifiSSID = WiFi.SSID();
   WifiPass = WiFi.psk();
 
-  // Save MQTT parameters received from the portal input.
+  // Save updated MQTT parameters.
   MqttServer = String(custom_mqtt_server.getValue());
   MqttClientID = String(custom_mqtt_clientid.getValue());
   MqttUser = String(custom_mqtt_user.getValue());
@@ -361,7 +373,7 @@ void beginWiFiMQTTConfig() {
   PublishTopic = String(custom_publish_topic.getValue());
   SubscribeTopic = String(custom_subscribe_topic.getValue());
 
-  // Save the MQTT configuration to SPIFFS so it persists across reboots.
+  // Save new configuration to SPIFFS.
   saveWiFiMQTTConfig();
 
   Serial.println("Connected to WiFi with SSID: " + WifiSSID);
@@ -370,14 +382,14 @@ void beginWiFiMQTTConfig() {
 /**
  * @brief Initializes NTP time synchronization and updates the RTC.
  *
- * Configures NTP with the provided UTC offsets and sets the timeInitialized flag upon successful sync.
+ * Configures NTP with the provided UTC offsets and sets the local RTC.
  */
 void initializeNTP() {
   if (!timeInitialized) {
     configTime(UTC_OFFSET, UTC_OFFSET_DST, NTP_SERVER);
     struct tm timeinfo;
     if (getLocalTime(&timeinfo)) {
-      rtc.setTimeStruct(timeinfo);  // Update local RTC
+      rtc.setTimeStruct(timeinfo);  // Update RTC with local time
       timeInitialized = true;
       Serial.println(F("NTP time initialized."));
     } else {
@@ -389,7 +401,7 @@ void initializeNTP() {
 /**
  * @brief Connects to the configured WiFi network.
  *
- * Attempts connection with predefined credentials and initializes NTP on success.
+ * Attempts a connection using stored credentials and initializes NTP on success.
  */
 void connectToWiFi() {
   Serial.print(F("Connecting to WiFi: "));
@@ -401,42 +413,42 @@ void connectToWiFi() {
     if (WiFi.status() == WL_CONNECTED)
       break;
     Serial.print(F("."));
-    vTaskDelay(pdMS_TO_TICKS(300));  // Wait for 300 ms before retrying
+    vTaskDelay(pdMS_TO_TICKS(300));  // Wait for 300 ms before next attempt
   }
 
   if (WiFi.status() == WL_CONNECTED) {
     Serial.print(F("\nWiFi connected! IP: "));
     Serial.println(WiFi.localIP().toString());
-    updateDisplayFlag = true;  // Trigger display update for WiFi status change
-    initializeNTP();           // Initialize NTP after WiFi connection
+    updateDisplayFlag = true;  // Trigger display update for WiFi status
+    initializeNTP();           // Initialize NTP after connection
   } else {
     Serial.println(F("\nWiFi connection failed, retrying..."));
   }
 }
 
 /**
- * @brief Connects to the MQTT broker and subscribes to topics.
+ * @brief Connects to the MQTT broker and subscribes to a topic.
  *
- * Attempts MQTT connection using predefined credentials and subscribes to a topic if successful.
+ * Attempts an MQTT connection using stored credentials and subscribes to the configured topic.
  */
 void connectToMQTT() {
   Serial.print("Connecting to MQTT...");
   if (client.connect(MqttClientID.c_str(), MqttUser.c_str(), MqttPass.c_str())) {
     Serial.println("Connected!");
-    updateDisplayFlag = true;                  // Trigger display update for MQTT status change
-    client.subscribe(SubscribeTopic.c_str());  // Subscribe to the topic
+    updateDisplayFlag = true;                  // Update display for MQTT status
+    client.subscribe(SubscribeTopic.c_str());  // Subscribe to incoming messages
   } else {
     Serial.println("MQTT connection failed, retrying...");
   }
 }
 
 /**
- * @brief Callback function to handle incoming MQTT messages.
+ * @brief Callback to handle incoming MQTT messages.
  *
  * Constructs the message from payload and toggles the onboard LED based on the received value.
  *
- * @param topic Pointer to the MQTT topic.
- * @param payload Array containing the message payload.
+ * @param topic Topic on which the message was received.
+ * @param payload Message payload.
  * @param length Length of the payload.
  */
 void mqttCallback(char *topic, byte *payload, unsigned int length) {
@@ -454,16 +466,16 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
 // ---------------------- FreeRTOS Tasks ----------------------
 
 /**
- * @brief FreeRTOS task to maintain the WiFi connection.
+ * @brief Task to maintain the WiFi connection.
  *
- * Checks the WiFi status and counts connection attempts. After WIFI_FAIL_THRESHOLD failures,
- * starts the WiFi/MQTT Manager mode.
+ * Checks connection status and, after a certain number of failures, restarts
+ * the device in configuration mode.
  *
  * @param pvParameters Task parameters.
  */
 void wifiTask(void *pvParameters) {
   int wifiFailCount = 0;
-  WiFi.mode(WIFI_STA);  // Set WiFi mode to Station mode
+  WiFi.mode(WIFI_STA);  // Set WiFi mode to Station
   while (true) {
     if (WiFi.status() != WL_CONNECTED) {
       connectToWiFi();
@@ -471,7 +483,6 @@ void wifiTask(void *pvParameters) {
         wifiFailCount++;
         if (wifiFailCount >= WIFI_FAIL_THRESHOLD) {
           Serial.println(F("Multiple WiFi failures detected. Launching WiFi/MQTT Manager."));
-
           deviceMode = CONFIG_MODE;
           saveDeviceModeConfig();
           ESP.restart();
@@ -481,15 +492,15 @@ void wifiTask(void *pvParameters) {
         wifiFailCount = 0;
       }
     }
-    vTaskDelay(pdMS_TO_TICKS(5000));  // Delay before the next check
+    vTaskDelay(pdMS_TO_TICKS(5000));
   }
 }
 
 /**
- * @brief FreeRTOS task to manage the MQTT connection.
+ * @brief Task to maintain the MQTT connection.
  *
- * Checks MQTT connection and counts failures. After MQTT_FAIL_THRESHOLD failures,
- * starts the WiFi/MQTT Manager mode.
+ * Checks the MQTT connection and loops the client. On consecutive failures,
+ * restarts the device in configuration mode.
  *
  * @param pvParameters Task parameters.
  */
@@ -497,7 +508,7 @@ void mqttTask(void *pvParameters) {
   int mqttFailCount = 0;
   while (true) {
     if (WiFi.status() != WL_CONNECTED) {
-      vTaskDelay(pdMS_TO_TICKS(1000));  // Wait for WiFi connection
+      vTaskDelay(pdMS_TO_TICKS(1000));
       continue;
     }
     if (!client.connected()) {
@@ -521,9 +532,9 @@ void mqttTask(void *pvParameters) {
 }
 
 /**
- * @brief FreeRTOS task to read sensor data from the DHT sensor.
+ * @brief Task to read sensor data from the DHT sensor.
  *
- * Reads sensor values, validates them, and sends the data to both sensorQueue and displayQueue.
+ * Reads sensor values and sends the data to the sensor and display queues.
  *
  * @param pvParameters Task parameters.
  */
@@ -535,19 +546,16 @@ void sensorTask(void *pvParameters) {
     sensorData.temperature = dht.readTemperature();
     sensorData.heatIndex = dht.computeHeatIndex(sensorData.temperature, sensorData.humidity, false);
 
-    // Check if sensor readings are valid
+    // Validate sensor readings
     if (!isnan(sensorData.humidity) && !isnan(sensorData.temperature)) {
-      // Send sensor data to sensorQueue
       if (xQueueSend(sensorQueue, &sensorData, portMAX_DELAY) == pdTRUE) {
         Serial.println("Sensor data sent to sensorQueue");
       } else {
         Serial.println("Failed to send sensor data to sensorQueue");
       }
 
-      // Overwrite the current sensor data in the displayQueue
       if (xQueueOverwrite(displayQueue, &sensorData) == pdTRUE) {
         Serial.println("Sensor data sent to displayQueue");
-        // Set the flag to trigger a display update
         updateDisplayFlag = true;
       } else {
         Serial.println("Failed to send sensor data to displayQueue");
@@ -555,16 +563,14 @@ void sensorTask(void *pvParameters) {
     } else {
       Serial.println("DHT sensor read failed!");
     }
-
-    // Delay for 20 seconds before the next sensor reading
-    vTaskDelay(pdMS_TO_TICKS(20000));
+    vTaskDelay(pdMS_TO_TICKS(20000));  // Delay before the next reading
   }
 }
 
 /**
- * @brief FreeRTOS task to publish sensor data over MQTT.
+ * @brief Task to publish sensor data over MQTT.
  *
- * Waits for sensor data from sensorQueue and publishes it to the MQTT topic.
+ * Waits for sensor data from the sensorQueue and publishes it.
  *
  * @param pvParameters Task parameters.
  */
@@ -572,28 +578,24 @@ void publishTask(void *pvParameters) {
   SensorData sensorData;
   char payload[100];
   while (true) {
-    // Wait for data in the sensorQueue with a 200ms timeout
     if (xQueueReceive(sensorQueue, &sensorData, pdMS_TO_TICKS(200))) {
       Serial.println("Data received from sensorQueue: Hum=" + String(sensorData.humidity) + ", Temp=" + String(sensorData.temperature) + ", HeatIndex=" + String(sensorData.heatIndex));
       snprintf(payload, sizeof(payload), "field1=%.2f&field2=%.2f&field3=%.2f&status=MQTTPUBLISH",
                sensorData.humidity, sensorData.temperature, sensorData.heatIndex);
-
-      // Publish data to the MQTT topic
       if (client.publish(PublishTopic.c_str(), payload)) {
         Serial.println("Published: " + String(payload));
       } else {
         Serial.println("Publish failed!");
       }
     }
-
-    vTaskDelay(pdMS_TO_TICKS(500));  // Delay to avoid overloading the task
+    vTaskDelay(pdMS_TO_TICKS(500));
   }
 }
 
 /**
- * @brief FreeRTOS task to update the display.
+ * @brief Task to update the display.
  *
- * Refreshes the PCD8544 display with the current date, time, WiFi/MQTT status, and sensor readings.
+ * Refreshes the display with the current date, time, connection status, and sensor data.
  *
  * @param pvParameters Task parameters.
  */
@@ -604,7 +606,6 @@ void displayTask(void *pvParameters) {
   char formattedTime[10];
 #endif
   while (true) {
-    // Only update the display when new data is available
     if (updateDisplayFlag) {
 #if SCREEN_SELECTION == SCREEN_SELECTION_PCD8544
       // Update PCD8544 Display
@@ -618,7 +619,7 @@ void displayTask(void *pvParameters) {
         display.println(formattedDate);
         display.println(formattedTime);
       }
-      // Clear sensor info region (starting at y=16)
+      // Clear sensor information region
       display.fillRect(0, 16, 84, 32, WHITE);
       display.setCursor(0, 16);
       display.print("WiFi:" + String(WiFi.status() == WL_CONNECTED ? "OK" : "NO"));
@@ -630,7 +631,7 @@ void displayTask(void *pvParameters) {
       }
       display.display();
 #elif SCREEN_SELECTION == SCREEN_SELECTION_LCD
-      // Update LCD Display (assuming 16x2 LCD)
+      // Update 16x2 LCD Display
       lcd.clear();
       lcd.setCursor(0, 0);
       String status = "WiFi:" + String(WiFi.status() == WL_CONNECTED ? "OK" : "NO") + " MQTT:" + String(client.connected() ? "OK" : "NO");
@@ -641,10 +642,8 @@ void displayTask(void *pvParameters) {
         lcd.print("H:" + String(sensorData.humidity, 1) + "%");
       }
 #endif
-      // Clear the update flag after a successful screen update
       updateDisplayFlag = false;
     }
-    // Check frequently for new data
     vTaskDelay(pdMS_TO_TICKS(200));
   }
 }
@@ -669,11 +668,11 @@ void showOpeningScreen() {
   lcd.setCursor(0, 1);
   lcd.print("DHT Sensor App");
 #endif
-  delay(3000);  // Show opening screen for 3 seconds
+  delay(3000);  // Show for 3 seconds
 }
 
 /**
- * @brief The setup function.
+ * @brief Application setup.
  */
 void setup() {
   Serial.begin(115200);
@@ -685,7 +684,7 @@ void setup() {
   }
 
   pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, HIGH);  // Ensure LED starts off
+  digitalWrite(LED_BUILTIN, HIGH);  // Ensure LED is off initially
 
 #if SCREEN_SELECTION == SCREEN_SELECTION_LCD
   // Initialize LCD (adjust columns and rows as needed)
@@ -700,7 +699,7 @@ void setup() {
   display.display();
 #endif
 
-  showOpeningScreen();  // Display opening screen
+  showOpeningScreen();  // Display the opening screen
 
   loadDeviceModeConfig();
   if (deviceMode == CONFIG_MODE) {
@@ -709,16 +708,12 @@ void setup() {
     saveDeviceModeConfig();
     ESP.restart();
   } else if (deviceMode == SLEEP_MODE) {
-
-  } else {
+    // Implement sleep mode if necessary
   }
   loadWiFiMQTTConfig();
 
   WiFi.mode(WIFI_STA);
-
-  // Set the MQTT server using defined MQTT_SERVER and MQTT_PORT.
   client.setServer(MqttServer.c_str(), MqttPort);
-
   client.setCallback(mqttCallback);
   dht.begin();
 
@@ -734,11 +729,10 @@ void setup() {
 }
 
 /**
- * @brief The main loop function.
+ * @brief Main loop.
  *
- * Deletes itself to prevent execution, as FreeRTOS tasks handle the application logic.
+ * The loop is left empty as FreeRTOS tasks handle the application logic.
  */
 void loop() {
-  // Keep the loop task alive while doing nothing
-  vTaskDelay(pdMS_TO_TICKS(1000));
+  vTaskDelay(pdMS_TO_TICKS(1000));  // Idle delay for main loop
 }
