@@ -320,6 +320,27 @@ void saveWiFiMQTTConfig() {
 }
 
 /**
+ * @brief Retrieves a shortened, unique chip ID in hexadecimal format.
+ *
+ * Extracts parts of the ESP32's MAC address to form a 32-bit chip ID,
+ * converts it to a hexadecimal string, and pads it to 8 characters.
+ *
+ * @return A zero-padded, uppercase hexadecimal string representing the chip ID.
+ */
+String getChipIdHex() {
+  uint32_t chipId = 0;
+
+  for (int i = 0; i < 17; i = i + 8) {
+    chipId |= ((ESP.getEfuseMac() >> (40 - i)) & 0xff) << i;
+  }
+
+  String chipIdHex = String(chipId, HEX);
+  chipIdHex.toUpperCase(); // Optional: make it uppercase
+  chipIdHex = chipIdHex.length() < 8 ? String("00000000").substring(chipIdHex.length()) + chipIdHex : chipIdHex; // zero pad
+  return chipIdHex;
+}
+
+/**
  * @brief Begins the WiFi/MQTT configuration portal.
  *
  * Displays a configuration portal to update WiFi and MQTT settings.
@@ -330,11 +351,7 @@ void beginWiFiMQTTConfig() {
   // (Call loadWiFiMQTTConfig() if desired before proceeding)
 
   // Generate an AP SSID based on the device's MAC address.
-  String _mac = String(WiFi.macAddress());
-  _mac.toLowerCase();
-  _mac.replace(":", "");
-  _mac.replace("240ac4", "a");  // vendor = Espressif Inc.
-  String apSSID = "ESP_" + _mac;
+  String apSSID = "ESP_" + getChipIdHex();
 
   // Define custom MQTT parameters for the configuration portal.
   WiFiManagerParameter custom_mqtt_server("server", "MQTT Server", MqttServer.c_str(), 40);
@@ -582,10 +599,12 @@ void publishTask(void *pvParameters) {
       Serial.println("Data received from sensorQueue: Hum=" + String(sensorData.humidity) + ", Temp=" + String(sensorData.temperature) + ", HeatIndex=" + String(sensorData.heatIndex));
       snprintf(payload, sizeof(payload), "field1=%.2f&field2=%.2f&field3=%.2f&status=MQTTPUBLISH",
                sensorData.humidity, sensorData.temperature, sensorData.heatIndex);
-      if (client.publish(PublishTopic.c_str(), payload)) {
-        Serial.println("Published: " + String(payload));
-      } else {
-        Serial.println("Publish failed!");
+      if (client.connected()) {
+        if (client.publish(PublishTopic.c_str(), payload)) {
+          Serial.println("Published: " + String(payload));
+        } else {
+          Serial.println("Publish failed!");
+        }
       }
     }
     vTaskDelay(pdMS_TO_TICKS(500));
