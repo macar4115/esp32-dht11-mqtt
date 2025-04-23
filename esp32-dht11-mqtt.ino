@@ -87,12 +87,13 @@
 
 #if SCREEN_SELECTION == SCREEN_SELECTION_LCD
 // ---------------------- LCD Pin Configuration ----------------------
-#define LCD_RS_PIN 19  // LCD RS pin
-#define LCD_EN_PIN 23  // LCD Enable pin
+
+#define LCD_RS_PIN 4   // LCD RS pin
+#define LCD_EN_PIN 16  // LCD Enable pin
 #define LCD_D4_PIN 18  // LCD Data pin 4
-#define LCD_D5_PIN 17  // LCD Data pin 5
-#define LCD_D6_PIN 16  // LCD Data pin 6
-#define LCD_D7_PIN 15  // LCD Data pin 7
+#define LCD_D5_PIN 19  // LCD Data pin 5
+#define LCD_D6_PIN 5   // LCD Data pin 6
+#define LCD_D7_PIN 17  // LCD Data pin 7
 #elif SCREEN_SELECTION == SCREEN_SELECTION_PCD8544
 // ---------------------- PCD8544 Display Pin Configuration ----------------------
 #define SCLK_PIN 18  // SCLK
